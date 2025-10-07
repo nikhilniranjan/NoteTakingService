@@ -47,11 +47,17 @@ def lambda_handler(event, context=None):
 			logger.error(f"Failed to fetch note from S3: {e.response['Error']['Message']}")
 			continue
 
-		# 2. Compress note with zstd
+		# 2. Compress note with zstd and calculate compression ratio
 		try:
 			logger.info(f"Compressing note_id={note_id}, version={version}")
+			original_size = len(note_data)
 			compressed = zstd.compress(note_data)
-			logger.info(f"Compression successful for note_id={note_id}, version={version}")
+			compressed_size = len(compressed)
+			if original_size > 0:
+				compression_ratio = compressed_size / original_size
+			else:
+				compression_ratio = None
+			logger.info(f"Compression successful for note_id={note_id}, version={version}. Ratio: {compression_ratio}")
 		except Exception as e:
 			logger.error(f"Compression failed for note_id={note_id}, version={version}: {e}")
 			continue
@@ -70,18 +76,21 @@ def lambda_handler(event, context=None):
 			logger.error(f"Failed to write compressed note to S3 or delete uncompressed note: {e.response['Error']['Message']}")
 			continue
 
-		# 4. Update DynamoDB metadata for the correct version
+		# 4. Update DynamoDB metadata for the correct version, including compression ratio
 		try:
-			logger.info(f"Updating DynamoDB metadata for note_id={note_id}, version={version}")
+			logger.info(f"Updating DynamoDB metadata for note_id={note_id}, version={version} with compression ratio")
+			update_expr = "SET compressed_key = :ck, compression_status = :s, compression_ratio = :cr"
+			expr_attr_vals = {
+				':ck': compressed_key,
+				':s': 'compressed',
+				':cr': compression_ratio
+			}
 			table.update_item(
 				Key={'note_id': note_id, 'version': version},
-				UpdateExpression="SET compressed_key = :ck, compression_status = :s",
-				ExpressionAttributeValues={
-					':ck': compressed_key,
-					':s': 'compressed'
-				}
+				UpdateExpression=update_expr,
+				ExpressionAttributeValues=expr_attr_vals
 			)
-			logger.info(f"Successfully updated DynamoDB for note_id={note_id}, version={version}")
+			logger.info(f"Successfully updated DynamoDB for note_id={note_id}, version={version} with compression ratio {compression_ratio}")
 		except ClientError as e:
 			logger.error(f"Failed to update DynamoDB: {e.response['Error']['Message']}")
 			continue

@@ -3,7 +3,9 @@ import logging
 
 API_GATEWAY_URL = "https://d22dme7p69.execute-api.ap-south-1.amazonaws.com/production_retrieve/notes"  # Update with your actual endpoint
 RETRIEVE_NOTE_URL = "https://d22dme7p69.execute-api.ap-south-1.amazonaws.com/production_retrieve/retrieve"  # Update with your actual endpoint for retrieval
+
 SAMPLE_URL = "https://www.gutenberg.org/files/1342/1342-0.txt"  # Pride and Prejudice
+METRICS_URL = "https://d22dme7p69.execute-api.ap-south-1.amazonaws.com/production_metrics/metrics"  # Update with your actual metrics endpoint
 
 # Set up logging for Lambda/CloudWatch
 logger = logging.getLogger()
@@ -120,6 +122,25 @@ def lambda_handler(event=None, context=None):
             "action": "retrieve_v2",
             "statusCode": 500,
             "body": f"Error retrieving note v2: {e}"
+        })
+
+
+    # 5. Get metrics from metrics endpoint
+    logger.info(f"Requesting metrics from API Gateway: {METRICS_URL}")
+    try:
+        metrics_response = requests.get(METRICS_URL)
+        logger.info(f"Metrics response: status={metrics_response.status_code}, body={metrics_response.text}")
+        results.append({
+            "action": "get_metrics",
+            "statusCode": metrics_response.status_code,
+            "body": metrics_response.text
+        })
+    except Exception as e:
+        logger.error(f"Error requesting metrics: {e}")
+        results.append({
+            "action": "get_metrics",
+            "statusCode": 500,
+            "body": f"Error requesting metrics: {e}"
         })
 
     logger.info(f"Lambda execution complete. Results: {results}")

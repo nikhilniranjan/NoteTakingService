@@ -4,6 +4,7 @@ import boto3
 import pyzstd as zstd
 from botocore.exceptions import ClientError
 import logging
+import time
 
 # Environment variables (set in Lambda console or SAM/CloudFormation)
 S3_BUCKET = os.environ.get('NOTES_BUCKET', 'your-notes-bucket')
@@ -69,11 +70,13 @@ def lambda_handler(event, context=None):
             'body': json.dumps({'error': f'Failed to fetch note from S3: {e.response["Error"]["Message"]}'})
         }
 
-    # 3. Decompress note
+    # 3. Decompress note and measure latency
     try:
         logger.info(f"Decompressing note for note_id={note_id}, version={version}")
+        start_time = time.time()
         note_data = zstd.decompress(compressed_data).decode('utf-8')
-        logger.info(f"Successfully decompressed note for note_id={note_id}, version={version}")
+        decompression_latency = time.time() - start_time
+        logger.info(f"Successfully decompressed note for note_id={note_id}, version={version}. Latency: {decompression_latency:.6f} seconds")
     except Exception as e:
         logger.error(f"Failed to decompress note: {e}")
         return {
@@ -81,7 +84,20 @@ def lambda_handler(event, context=None):
             'body': json.dumps({'error': f'Failed to decompress note: {e}'})
         }
 
-    # 4. Return note content
+    # 4. Update DynamoDB with decompression latency
+    try:
+        logger.info(f"Updating DynamoDB with decompression latency for note_id={note_id}, version={version}")
+        table.update_item(
+            Key={'note_id': note_id, 'version': version},
+            UpdateExpression="SET decompression_latency = :lat",
+            ExpressionAttributeValues={':lat': decompression_latency}
+        )
+        logger.info(f"Successfully updated decompression latency in DynamoDB for note_id={note_id}, version={version}")
+    except ClientError as e:
+        logger.error(f"Failed to update decompression latency in DynamoDB: {e.response['Error']['Message']}")
+        # Do not fail the request if latency update fails
+
+    # 5. Return note content
     logger.info(f"Returning note content for note_id={note_id}, version={version}")
     return {
         'statusCode': 200,
@@ -89,6 +105,7 @@ def lambda_handler(event, context=None):
             'note_id': note_id,
             'version': version,
             'title': item.get('title', ''),
-            'content': note_data
+            'content': note_data,
+            'decompression_latency': decompression_latency
         })
     }
