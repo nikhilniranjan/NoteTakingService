@@ -14,11 +14,15 @@ dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(DDB_TABLE)
 sqs = boto3.client('sqs')
 
+
+
 def lambda_handler(event, context=None):
-	# Parse input (API Gateway proxy integration: event['body'] is JSON string)
+	# Support both POST (create) and PUT (update) requests
+	method = event.get('httpMethod', 'POST')
 	try:
 		body = event['body'] if isinstance(event['body'], dict) else json.loads(event['body'])
 		note_id = body['note_id']
+		version = str(body.get('version', '1'))  # Default to version 1 if not provided
 		content = body['content']
 		title = body.get('title', '')
 		#author = body.get('author', '')
@@ -28,8 +32,8 @@ def lambda_handler(event, context=None):
 			'body': json.dumps({'error': f'Invalid input: {e}'})
 		}
 
-	# 1. Store note in S3
-	s3_key = f"notes/{note_id}.txt"
+	# 1. Store note in S3 (versioned key)
+	s3_key = f"notes/{note_id}_v{version}.txt"
 	try:
 		s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=content.encode('utf-8'))
 	except ClientError as e:
@@ -38,10 +42,11 @@ def lambda_handler(event, context=None):
 			'body': json.dumps({'error': f'Failed to store note in S3: {e.response["Error"]["Message"]}'})
 		}
 
-	# 2. Store metadata in DynamoDB
+	# 2. Store/update metadata in DynamoDB (versioned)
 	try:
 		table.put_item(Item={
 			'note_id': note_id,
+			'version': version,
 			's3_key': s3_key,
 			'title': title,
 			#'author': author,
@@ -53,11 +58,11 @@ def lambda_handler(event, context=None):
 			'body': json.dumps({'error': f'Failed to store metadata in DynamoDB: {e.response["Error"]["Message"]}'})
 		}
 
-	# 3. Put message in SQS queue
+	# 3. Put message in SQS queue (include version)
 	try:
 		sqs.send_message(
 			QueueUrl=SQS_QUEUE_URL,
-			MessageBody=json.dumps({'note_id': note_id, 's3_key': s3_key})
+			MessageBody=json.dumps({'note_id': note_id, 'version': version, 's3_key': s3_key})
 		)
 	except ClientError as e:
 		return {
@@ -69,8 +74,9 @@ def lambda_handler(event, context=None):
 	return {
 		'statusCode': 200,
 		'body': json.dumps({
-			'message': 'Note uploaded successfully',
+			'message': f'Note {"updated" if method == "PUT" else "uploaded"} successfully',
 			'note_id': note_id,
+			'version': version,
 			's3_key': s3_key
 		})
 	}
