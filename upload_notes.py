@@ -74,3 +74,4 @@ def lambda_handler(event, context=None):
 			's3_key': s3_key
 		})
 	}
+

@@ -1,8 +1,11 @@
-
 import os
+#import os
+#os.environ["ZSTD_USE_BACKEND"] = "cffi"
 import json
 import boto3
-import zstandard as zstd
+import pyzstd as zstd
+#import zstandard as zstd
+#from compression import zstd
 from botocore.exceptions import ClientError
 
 # Environment variables (set in Lambda console or SAM/CloudFormation)
@@ -34,8 +37,10 @@ def lambda_handler(event, context=None):
 
 		# 2. Compress note with zstd
 		try:
-			cctx = zstd.ZstdCompressor()
-			compressed = cctx.compress(note_data)
+			#cctx = zstd.ZstdCompressor()
+			#compressed = cctx.compress(note_data)
+			#compressed = zstd.compress(note_data)
+			compressed = zstd.compress(note_data)
 		except Exception as e:
 			print(f"Compression failed: {e}")
 			continue
@@ -44,6 +49,7 @@ def lambda_handler(event, context=None):
 		compressed_key = s3_key.replace('.txt', '.zst')
 		try:
 			s3.put_object(Bucket=S3_BUCKET, Key=compressed_key, Body=compressed)
+			#TBD: delete the uncompressed object
 		except ClientError as e:
 			print(f"Failed to write compressed note to S3: {e.response['Error']['Message']}")
 			continue
@@ -52,7 +58,7 @@ def lambda_handler(event, context=None):
 		try:
 			table.update_item(
 				Key={'note_id': note_id},
-				UpdateExpression="SET compressed_key = :ck, status = :s",
+				UpdateExpression="SET compressed_key = :ck, compression_status = :s",
 				ExpressionAttributeValues={
 					':ck': compressed_key,
 					':s': 'compressed'

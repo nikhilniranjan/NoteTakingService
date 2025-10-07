@@ -1,5 +1,3 @@
-
-
 import requests
 
 def lambda_handler(event, context):
@@ -16,7 +14,7 @@ def lambda_handler(event, context):
 
 	# 2. Define the API Gateway endpoint for upload_notes
 	# Replace this with your actual API Gateway endpoint URL
-	API_GATEWAY_URL = "https://l6wq49qc0k.execute-api.ap-south-1.amazonaws.com/production"
+	API_GATEWAY_URL = "https://l6wq49qc0k.execute-api.ap-south-1.amazonaws.com/production/"
 
 	# 3. Prepare the payload
 	payload = {
@@ -40,4 +38,3 @@ def lambda_handler(event, context):
 		}
 	return result
  
-
