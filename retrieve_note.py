@@ -4,7 +4,8 @@ import boto3
 import pyzstd as zstd
 from botocore.exceptions import ClientError
 import logging
-import time
+import time 
+from decimal import Decimal, getcontext
 
 # Environment variables (set in Lambda console or SAM/CloudFormation)
 S3_BUCKET = os.environ.get('NOTES_BUCKET', 'your-notes-bucket')
@@ -75,7 +76,7 @@ def lambda_handler(event, context=None):
         logger.info(f"Decompressing note for note_id={note_id}, version={version}")
         start_time = time.time()
         note_data = zstd.decompress(compressed_data).decode('utf-8')
-        decompression_latency = time.time() - start_time
+        decompression_latency = Decimal(time.time()) - Decimal(start_time)
         logger.info(f"Successfully decompressed note for note_id={note_id}, version={version}. Latency: {decompression_latency:.6f} seconds")
     except Exception as e:
         logger.error(f"Failed to decompress note: {e}")
@@ -106,6 +107,6 @@ def lambda_handler(event, context=None):
             'version': version,
             'title': item.get('title', ''),
             'content': note_data,
-            'decompression_latency': decompression_latency
+            #'decompression_latency': float(decompression_latency)
         })
     }

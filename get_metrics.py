@@ -42,13 +42,13 @@ def lambda_handler(event, context=None):
         logger.error(f"Failed to scan DynamoDB: {e.response['Error']['Message']}")
         return {
             'statusCode': 500,
-            'body': json.dumps({'error': f'Failed to fetch metrics: {e.response['Error']['Message']}'})
+            'body': json.dumps({'error': f"Failed to fetch metrics: {e.response['Error']['Message']}"})
         }
 
     return {
         'statusCode': 200,
         'body': json.dumps({
-            'compression_ratios': compression_ratios,
-            'decompression_latencies': latencies
+            'compression_ratios': [float(cr) for cr in compression_ratios],
+            'decompression_latencies': [float(lat) for lat in latencies]
         })
     }
