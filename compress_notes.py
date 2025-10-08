@@ -7,14 +7,19 @@ import pyzstd as zstd
 #import zstandard as zstd
 #from compression import zstd
 from botocore.exceptions import ClientError
+from decimal import Decimal, getcontext
 import logging
 
 # Environment variables (set in Lambda console or SAM/CloudFormation)
 S3_BUCKET = os.environ.get('NOTES_BUCKET', 'your-notes-bucket')
 DDB_TABLE = os.environ.get('NOTES_TABLE', 'your-notes-table')
+SQS_QUEUE_URL = os.environ.get('NOTES_QUEUE_URL', 'https://sqs.region.amazonaws.com/123456789012/your-queue')
+
+
 
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
+sqs = boto3.client('sqs')
 
 table = dynamodb.Table(DDB_TABLE)
 
@@ -54,7 +59,7 @@ def lambda_handler(event, context=None):
 			compressed = zstd.compress(note_data)
 			compressed_size = len(compressed)
 			if original_size > 0:
-				compression_ratio = compressed_size / original_size
+				compression_ratio = Decimal(compressed_size) / Decimal(original_size)
 			else:
 				compression_ratio = None
 			logger.info(f"Compression successful for note_id={note_id}, version={version}. Ratio: {compression_ratio}")
@@ -96,4 +101,19 @@ def lambda_handler(event, context=None):
 			continue
 
 		logger.info(f"Note {note_id} (version {version}) compressed and updated successfully.")
+  
+		#Delete SQS message after successful processing
+		try:
+			logger.info(f"Deleting SQS message: queue_url={SQS_QUEUE_URL}, note_id={note_id}, version={version}")
+			sqs.delete_message(
+				QueueUrl=SQS_QUEUE_URL,
+				ReceiptHandle=record['receiptHandle']
+			)
+			logger.info(f"Successfully enqueued SQS message for note_id={note_id}, version={version}")
+		except ClientError as e:
+			logger.error(f"Failed to enqueue SQS message: {e.response['Error']['Message']}")
+			return {
+				'statusCode': 500,
+				'body': json.dumps({'error': f"Failed to enqueue SQS message: {e.response['Error']['Message']}"})
+			}
 
