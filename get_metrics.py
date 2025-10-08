@@ -24,20 +24,25 @@ def lambda_handler(event, context=None):
             'body': json.dumps({'error': 'Method Not Allowed'})
         }
 
-    compression_ratios = []
-    latencies = []
+    notes_metrics = []
     try:
         logger.info(f"Scanning DynamoDB table {DDB_TABLE} for metrics")
         response = table.scan()
         items = response.get('Items', [])
         for item in items:
-            cr = item.get('compression_ratio')
-            lat = item.get('decompression_latency')
-            if cr is not None:
-                compression_ratios.append(cr)
-            if lat is not None:
-                latencies.append(lat)
-        logger.info(f"Found {len(compression_ratios)} compression ratios and {len(latencies)} latencies")
+            note_id = item.get('note_id')
+            version = item.get('version')
+            uncompressed_size = item.get('uncompressed_size')
+            compression_ratio = item.get('compression_ratio')
+            decompression_latency = item.get('decompression_latency')
+            notes_metrics.append({
+                'note_id': note_id,
+                'version': version,
+                'uncompressed_size': float(uncompressed_size) if uncompressed_size is not None else None,
+                'compression_ratio': float(compression_ratio) if compression_ratio is not None else None,
+                'decompression_latency': float(decompression_latency) if decompression_latency is not None else None
+            })
+        logger.info(f"Found {len(notes_metrics)} notes with metrics")
     except ClientError as e:
         logger.error(f"Failed to scan DynamoDB: {e.response['Error']['Message']}")
         return {
@@ -48,7 +53,6 @@ def lambda_handler(event, context=None):
     return {
         'statusCode': 200,
         'body': json.dumps({
-            'compression_ratios': [float(cr) for cr in compression_ratios],
-            'decompression_latencies': [float(lat) for lat in latencies]
+            'notes_metrics': notes_metrics
         })
     }

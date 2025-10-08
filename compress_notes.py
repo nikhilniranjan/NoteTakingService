@@ -55,14 +55,17 @@ def lambda_handler(event, context=None):
 		# 2. Compress note with zstd and calculate compression ratio
 		try:
 			logger.info(f"Compressing note_id={note_id}, version={version}")
-			original_size = len(note_data)
+			original_size = len(note_data) if note_data is not None else 0
+			if not isinstance(original_size, int) or original_size < 0:
+				logger.warning(f"original_size invalid for note_id={note_id}, version={version}. Setting to 0.")
+				original_size = 0
 			compressed = zstd.compress(note_data)
 			compressed_size = len(compressed)
 			if original_size > 0:
 				compression_ratio = Decimal(compressed_size) / Decimal(original_size)
 			else:
 				compression_ratio = None
-			logger.info(f"Compression successful for note_id={note_id}, version={version}. Ratio: {compression_ratio}")
+			logger.info(f"Compression successful for note_id={note_id}, version={version}. Ratio: {compression_ratio}, original_size: {original_size}")
 		except Exception as e:
 			logger.error(f"Compression failed for note_id={note_id}, version={version}: {e}")
 			continue
@@ -81,21 +84,24 @@ def lambda_handler(event, context=None):
 			logger.error(f"Failed to write compressed note to S3 or delete uncompressed note: {e.response['Error']['Message']}")
 			continue
 
-		# 4. Update DynamoDB metadata for the correct version, including compression ratio
+		# 4. Update DynamoDB metadata for the correct version, including compression ratio and uncompressed size
 		try:
-			logger.info(f"Updating DynamoDB metadata for note_id={note_id}, version={version} with compression ratio")
-			update_expr = "SET compressed_key = :ck, compression_status = :s, compression_ratio = :cr"
+			logger.info(f"Updating DynamoDB metadata for note_id={note_id}, version={version} with compression ratio and uncompressed size")
+			update_expr = "SET compressed_key = :ck, compression_status = :s, compression_ratio = :cr, uncompressed_size = :us"
+			# Ensure uncompressed_size is always a valid integer
+			us_value = int(original_size) if original_size is not None else 0
 			expr_attr_vals = {
 				':ck': compressed_key,
 				':s': 'compressed',
-				':cr': compression_ratio
+				':cr': compression_ratio,
+				':us': us_value
 			}
 			table.update_item(
 				Key={'note_id': note_id, 'version': version},
 				UpdateExpression=update_expr,
 				ExpressionAttributeValues=expr_attr_vals
 			)
-			logger.info(f"Successfully updated DynamoDB for note_id={note_id}, version={version} with compression ratio {compression_ratio}")
+			logger.info(f"Successfully updated DynamoDB for note_id={note_id}, version={version} with compression ratio {compression_ratio} and uncompressed size {original_size}")
 		except ClientError as e:
 			logger.error(f"Failed to update DynamoDB: {e.response['Error']['Message']}")
 			continue

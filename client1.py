@@ -21,6 +21,7 @@ import requests
 import logging
 import time
 import random
+import json
 
 API_GATEWAY_URL = "https://d22dme7p69.execute-api.ap-south-1.amazonaws.com/production_retrieve/notes"  # Update with your actual endpoint
 RETRIEVE_NOTE_URL = "https://d22dme7p69.execute-api.ap-south-1.amazonaws.com/production_retrieve/retrieve"  # Update with your actual endpoint for retrieval
@@ -38,8 +39,8 @@ logging.basicConfig(level=logging.INFO,filename="squeezenotes.log",encoding='utf
 results = []
 note_table = {}  # (note_id, version) -> content
 note_ids = []
-num_notes = 2
-num_versions = 2
+num_notes = 1
+num_versions = 1
 
 # Download sample text
 response = requests.get(SAMPLE_URL)
@@ -88,7 +89,7 @@ for version in range(2, num_versions + 1):
             logger.error(f"Error updating note {note_id} v{version}: {e}")
 
 print("Sleeping")
-time.sleep(10) # Wait for a while to ensure all updates are processed
+time.sleep(1) # Wait for a while to ensure all updates are processed
 
 # 3. Retrieve random notes and compare contents with retry logic
 max_retries = 3
@@ -131,19 +132,58 @@ try:
     results.append({"action": "get_metrics", "statusCode": metrics_response.status_code, "body": metrics_response.text})
 
     # Parse metrics JSON
-    metrics_json = metrics_response.json()
-    compression_ratios = metrics_json.get("compression_ratios", [])
-    latencies = metrics_json.get("decompression_latencies", [])
+    metrics = json.loads(metrics_response.text)
+    body = metrics.get('body')
+    body_struct = json.loads(body)
+    list_metrics = body_struct.get("notes_metrics", [])
+    #print("length of the list is ", len(list_metrics))
 
-    # Convert compression ratios to microseconds (assuming ratio is a float, multiply by 1_000_000)
-    compression_ratios_micro = [cr * 1_000_000 for cr in compression_ratios]
+    '''
+    metrics = metrics_response.json()
+    #print(metrics_json)
+    returned_metrics = metrics.get("body", {})
+    print(returned_metrics)
+    print("\n********\n")
+    first_metric = returned_metrics[0]
+    #if (list_metrics == None):
+    #    print("Empty list!\n")
+    #print(list_metrics[0]["note_id"])
+    #print("length of the list is ", len(list_metrics))
+    print('foobar')
+    print(first_metric)
+    '''
+    # Write all metrics fields to file
+    with open("metrics_notes.txt", "w") as f:
+        f.write("note_id,version,uncompressed_size,compression_ratio,decompression_latency\n")
+        for entry in list_metrics:
+            note_id = entry.get("note_id", "")
+            version = entry.get("version", "")
+            uncompressed_size = entry.get("uncompressed_size") if entry.get("uncompressed_size") is not None else ""
+            compression_ratio = entry.get("compression_ratio") if entry.get("compression_ratio") is not None else ""
+            decompression_latency = entry.get("decompression_latency") if entry.get("decompression_latency") is not None else ""
+            f.write(f"{note_id},{version},{uncompressed_size},{compression_ratio},{decompression_latency}\n")
+    logger.info(f"Wrote metrics details to metrics_notes.txt")
 
-    # Write pairs to file
-    with open("metrics_pairs.txt", "w") as f:
-        f.write("compression_ratio_microseconds,decompression_latency\n")
-        for cr_micro, lat in zip(compression_ratios_micro, latencies):
-            f.write(f"{cr_micro},{lat}\n")
-    logger.info(f"Wrote metrics pairs to metrics_pairs.txt")
+    # Calculate averages
+    compression_ratios = [entry.get("compression_ratio") for entry in notes_metrics if isinstance(entry.get("compression_ratio"), (int, float))]
+    decompression_latencies = [entry.get("decompression_latency") for entry in notes_metrics if isinstance(entry.get("decompression_latency"), (int, float))]
+
+    avg_compression_ratio = sum(compression_ratios) / len(compression_ratios) if compression_ratios else None
+    avg_decompression_latency = sum(decompression_latencies) / len(decompression_latencies) if decompression_latencies else None
+
+    # Calculate overall storage savings
+    uncompressed_sizes = [entry.get("uncompressed_size") for entry in notes_metrics if isinstance(entry.get("uncompressed_size"), (int, float)) and isinstance(entry.get("compression_ratio"), (int, float))]
+    compressed_sizes = [entry.get("uncompressed_size") * entry.get("compression_ratio") for entry in notes_metrics if isinstance(entry.get("uncompressed_size"), (int, float)) and isinstance(entry.get("compression_ratio"), (int, float))]
+    total_uncompressed = sum(uncompressed_sizes)
+    total_compressed = sum(compressed_sizes)
+    storage_savings = ((total_uncompressed - total_compressed) / total_uncompressed) if total_uncompressed > 0 else None
+
+    logger.info(f"Average compression ratio: {avg_compression_ratio}")
+    logger.info(f"Average decompression latency: {avg_decompression_latency}")
+    logger.info(f"Overall storage savings from compression: {storage_savings}")
+    print(f"Average compression ratio: {avg_compression_ratio}")
+    print(f"Average decompression latency: {avg_decompression_latency}")
+    print(f"Overall storage savings from compression: {storage_savings}")
 except Exception as e:
     logger.error(f"Error requesting or processing metrics: {e}")
     results.append({"action": "get_metrics", "statusCode": 500, "body": f"Error requesting metrics: {e}"})
