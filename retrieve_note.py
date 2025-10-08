@@ -10,17 +10,27 @@ from decimal import Decimal, getcontext
 # Environment variables (set in Lambda console or SAM/CloudFormation)
 S3_BUCKET = os.environ.get('NOTES_BUCKET', 'your-notes-bucket')
 DDB_TABLE = os.environ.get('NOTES_TABLE', 'your-notes-table')
+#COMPRESSION_ALGO = "TRAINED_ZSTD"
+#COMPRESSION_ALGO = "NONE"
+COMPRESSION_ALGO = "ZSTD"
 
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(DDB_TABLE)
 s3 = boto3.client('s3')
 
+
 # Set up logging for Lambda/CloudWatch
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+def get_dictionary_data():
+    response = s3.get_object(Bucket=S3_BUCKET, Key='notes/zstd_dictionary')
+    dictionary_data = response['Body'].read()
+    return dictionary_data
+
 def lambda_handler(event, context=None):
     # Parse query params for note_id and version
+    read_start = time.time() #start time for read
     params = event.get('queryStringParameters', {})
     note_id = params.get('note_id')
     version = params.get('version')
@@ -71,29 +81,50 @@ def lambda_handler(event, context=None):
             'body': json.dumps({'error': f'Failed to fetch note from S3: {e.response["Error"]["Message"]}'})
         }
 
-    # 3. Decompress note and measure latency
+    # 3. Decompress note if required and measure latency
+    if (COMPRESSION_ALGO == "ZSTD") or (COMPRESSION_ALGO == "TRAINED_ZSTD"):
+        try:
+            logger.info(f"Decompressing note for note_id={note_id}, version={version}")
+            start_time = time.time()
+            if COMPRESSION_ALGO == "ZSTD":
+                note_data = zstd.decompress(compressed_data).decode('utf-8')
+            elif COMPRESSION_ALGO == "TRAINED_ZSTD":
+                dict_data = get_dictionary_data()  # Function to fetch your trained dictionary data
+                zstd_dict = zstd.ZstdDict(dict_data)
+                decompressor = zstd.ZstdDecompressor(zstd_dict=zstd_dict)
+                note_data = decompressor.decompress(compressed_data).decode('utf-8')
+            else:
+                raise Exception("Unsupported compression algorithm")
+            decompression_latency = round(Decimal(time.time()) - Decimal(start_time), 2) * 1000000  # Convert to microseconds, rounded to 2 decimal places
+            logger.info(f"Successfully decompressed note for note_id={note_id}, version={version}. Latency: {decompression_latency:.6f} seconds")
+        except Exception as e:
+            logger.error(f"Failed to decompress note: {e}")
+            return {
+                'statusCode': 500,
+                'body': json.dumps({'error': f'Failed to decompress note: {e}'})
+            }
+    else:
+        note_data = compressed_data.decode('utf-8')
+        decompression_latency = 0
+        logger.info(f"No decompression needed for note_id={note_id}, version={version}")
+   
+    read_end = time.time() #end time for read
+    read_latency = round(Decimal(read_end) - Decimal(read_start), 2) * 1000000  # Convert to microseconds, rounded to 2 decimal places
+    
+    # 4. Update DynamoDB with decompression latency and read latency
     try:
-        logger.info(f"Decompressing note for note_id={note_id}, version={version}")
-        start_time = time.time()
-        note_data = zstd.decompress(compressed_data).decode('utf-8')
-        decompression_latency = Decimal(time.time()) - Decimal(start_time)
-        logger.info(f"Successfully decompressed note for note_id={note_id}, version={version}. Latency: {decompression_latency:.6f} seconds")
-    except Exception as e:
-        logger.error(f"Failed to decompress note: {e}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps({'error': f'Failed to decompress note: {e}'})
-        }
-
-    # 4. Update DynamoDB with decompression latency
-    try:
-        logger.info(f"Updating DynamoDB with decompression latency for note_id={note_id}, version={version}")
+        logger.info(f"Updating DynamoDB with decompression latency and read latency for note_id={note_id}, version={version}")
         table.update_item(
             Key={'note_id': note_id, 'version': version},
             UpdateExpression="SET decompression_latency = :lat",
             ExpressionAttributeValues={':lat': decompression_latency}
         )
-        logger.info(f"Successfully updated decompression latency in DynamoDB for note_id={note_id}, version={version}")
+        table.update_item(
+            Key={'note_id': note_id, 'version': version},
+            UpdateExpression="SET read_latency = :lat",
+            ExpressionAttributeValues={':lat': read_latency}
+        )
+        logger.info(f"Successfully updated decompression latency and read latency in DynamoDB for note_id={note_id}, version={version}")
     except ClientError as e:
         logger.error(f"Failed to update decompression latency in DynamoDB: {e.response['Error']['Message']}")
         # Do not fail the request if latency update fails

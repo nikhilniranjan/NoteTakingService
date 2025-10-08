@@ -14,7 +14,9 @@ import logging
 S3_BUCKET = os.environ.get('NOTES_BUCKET', 'your-notes-bucket')
 DDB_TABLE = os.environ.get('NOTES_TABLE', 'your-notes-table')
 SQS_QUEUE_URL = os.environ.get('NOTES_QUEUE_URL', 'https://sqs.region.amazonaws.com/123456789012/your-queue')
-
+#COMPRESSION_ALGO = "TRAINED_ZSTD"
+#COMPRESSION_ALGO = "NONE"
+COMPRESSION_ALGO = "ZSTD"
 
 
 s3 = boto3.client('s3')
@@ -26,6 +28,11 @@ table = dynamodb.Table(DDB_TABLE)
 # Set up logging for Lambda/CloudWatch
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+def get_dictionary_data():
+    response = s3.get_object(Bucket=S3_BUCKET, Key='notes/zstd_dictionary')
+    dictionary_data = response['Body'].read()
+    return dictionary_data
 
 
 def lambda_handler(event, context=None):
@@ -59,7 +66,14 @@ def lambda_handler(event, context=None):
 			if not isinstance(original_size, int) or original_size < 0:
 				logger.warning(f"original_size invalid for note_id={note_id}, version={version}. Setting to 0.")
 				original_size = 0
-			compressed = zstd.compress(note_data)
+			if COMPRESSION_ALGO == "ZSTD":
+				compressed = zstd.compress(note_data)
+			elif COMPRESSION_ALGO == "TRAINED_ZSTD":
+				dict_data = get_dictionary_data()  # Function to fetch your trained dictionary data
+				zstd_dict = zstd.ZstdDict(dict_data)
+				compressor = zstd.ZstdCompressor(zstd_dict=zstd_dict)
+				compressed = compressor.compress(note_data)
+				
 			compressed_size = len(compressed)
 			if original_size > 0:
 				compression_ratio = Decimal(compressed_size) / Decimal(original_size)

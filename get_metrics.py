@@ -35,12 +35,14 @@ def lambda_handler(event, context=None):
             uncompressed_size = item.get('uncompressed_size')
             compression_ratio = item.get('compression_ratio')
             decompression_latency = item.get('decompression_latency')
+            read_latency = item.get('read_latency')
             notes_metrics.append({
                 'note_id': note_id,
                 'version': version,
                 'uncompressed_size': float(uncompressed_size) if uncompressed_size is not None else None,
                 'compression_ratio': float(compression_ratio) if compression_ratio is not None else None,
-                'decompression_latency': float(decompression_latency) if decompression_latency is not None else None
+                'decompression_latency': float(decompression_latency) if decompression_latency is not None else None,
+                'read_latency': float(read_latency) if read_latency is not None else None
             })
         logger.info(f"Found {len(notes_metrics)} notes with metrics")
     except ClientError as e:

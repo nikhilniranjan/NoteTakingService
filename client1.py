@@ -154,35 +154,39 @@ try:
     '''
     # Write all metrics fields to file
     with open("metrics_notes.txt", "w") as f:
-        f.write("note_id,version,uncompressed_size,compression_ratio,decompression_latency\n")
+        f.write("note_id,version,uncompressed_size,compression_ratio,decompression_latency,read_latency\n")
         for entry in list_metrics:
             note_id = entry.get("note_id", "")
             version = entry.get("version", "")
             uncompressed_size = entry.get("uncompressed_size") if entry.get("uncompressed_size") is not None else ""
             compression_ratio = entry.get("compression_ratio") if entry.get("compression_ratio") is not None else ""
             decompression_latency = entry.get("decompression_latency") if entry.get("decompression_latency") is not None else ""
-            f.write(f"{note_id},{version},{uncompressed_size},{compression_ratio},{decompression_latency}\n")
+            read_latency = entry.get("read_latency") if entry.get("read_latency") is not None else ""
+            f.write(f"{note_id},{version},{uncompressed_size},{compression_ratio},{decompression_latency},{read_latency}\n")
     logger.info(f"Wrote metrics details to metrics_notes.txt")
 
     # Calculate averages
-    compression_ratios = [entry.get("compression_ratio") for entry in notes_metrics if isinstance(entry.get("compression_ratio"), (int, float))]
-    decompression_latencies = [entry.get("decompression_latency") for entry in notes_metrics if isinstance(entry.get("decompression_latency"), (int, float))]
-
-    avg_compression_ratio = sum(compression_ratios) / len(compression_ratios) if compression_ratios else None
-    avg_decompression_latency = sum(decompression_latencies) / len(decompression_latencies) if decompression_latencies else None
+    compression_ratios = [entry.get("compression_ratio") for entry in list_metrics if isinstance(entry.get("compression_ratio"), (int, float))]
+    decompression_latencies = [entry.get("decompression_latency") for entry in list_metrics if isinstance(entry.get("decompression_latency"), (int, float))]
+    read_latencies = [entry.get("read_latency") for entry in list_metrics if isinstance(entry.get("read_latency"), (int, float))]
+    avg_compression_ratio = round(sum(compression_ratios) / len(compression_ratios), 2) if compression_ratios else None
+    avg_decompression_latency = round(sum(decompression_latencies) / len(decompression_latencies), 2) if decompression_latencies else None
+    avg_read_latency = round(sum(read_latencies) / len(read_latencies), 2) if read_latencies else None
 
     # Calculate overall storage savings
-    uncompressed_sizes = [entry.get("uncompressed_size") for entry in notes_metrics if isinstance(entry.get("uncompressed_size"), (int, float)) and isinstance(entry.get("compression_ratio"), (int, float))]
-    compressed_sizes = [entry.get("uncompressed_size") * entry.get("compression_ratio") for entry in notes_metrics if isinstance(entry.get("uncompressed_size"), (int, float)) and isinstance(entry.get("compression_ratio"), (int, float))]
+    uncompressed_sizes = [entry.get("uncompressed_size") for entry in list_metrics if isinstance(entry.get("uncompressed_size"), (int, float)) and isinstance(entry.get("compression_ratio"), (int, float))]
+    compressed_sizes = [entry.get("uncompressed_size") * entry.get("compression_ratio") for entry in list_metrics if isinstance(entry.get("uncompressed_size"), (int, float)) and isinstance(entry.get("compression_ratio"), (int, float))]
     total_uncompressed = sum(uncompressed_sizes)
     total_compressed = sum(compressed_sizes)
-    storage_savings = ((total_uncompressed - total_compressed) / total_uncompressed) if total_uncompressed > 0 else None
+    storage_savings = round((total_uncompressed - total_compressed) / total_uncompressed, 2) if total_uncompressed > 0 else None
 
     logger.info(f"Average compression ratio: {avg_compression_ratio}")
     logger.info(f"Average decompression latency: {avg_decompression_latency}")
+    logger.info(f"Average read latency: {avg_read_latency}")
     logger.info(f"Overall storage savings from compression: {storage_savings}")
     print(f"Average compression ratio: {avg_compression_ratio}")
     print(f"Average decompression latency: {avg_decompression_latency}")
+    print(f"Average read latency: {avg_read_latency}")
     print(f"Overall storage savings from compression: {storage_savings}")
 except Exception as e:
     logger.error(f"Error requesting or processing metrics: {e}")
