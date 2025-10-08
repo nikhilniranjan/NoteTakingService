@@ -27,7 +27,7 @@ table = dynamodb.Table(DDB_TABLE)
 
 # Set up logging for Lambda/CloudWatch
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.ERROR)
 
 def get_dictionary_data():
     response = s3.get_object(Bucket=S3_BUCKET, Key='notes/zstd_dictionary')

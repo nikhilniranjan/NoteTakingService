@@ -9,7 +9,9 @@ import logging
 S3_BUCKET = os.environ.get('NOTES_BUCKET', 'your-notes-bucket')
 DDB_TABLE = os.environ.get('NOTES_TABLE', 'your-notes-table')
 SQS_QUEUE_URL = os.environ.get('NOTES_QUEUE_URL', 'https://sqs.region.amazonaws.com/123456789012/your-queue')
-
+#COMPRESSION_ALGO = "TRAINED_ZSTD"
+#COMPRESSION_ALGO = "NONE"
+COMPRESSION_ALGO = "ZSTD"
 
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
@@ -18,7 +20,7 @@ sqs = boto3.client('sqs')
 
 # Set up logging for Lambda/CloudWatch
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.ERROR)
 
 
 
@@ -74,20 +76,21 @@ def lambda_handler(event, context=None):
 			'body': json.dumps({'error': f'Failed to store metadata in DynamoDB: {e.response['Error']['Message']}'})
 		}
 
-	# 3. Put message in SQS queue (include version)
-	try:
-		logger.info(f"Enqueuing SQS message: queue_url={SQS_QUEUE_URL}, note_id={note_id}, version={version}")
-		sqs.send_message(
-			QueueUrl=SQS_QUEUE_URL,
-			MessageBody=json.dumps({'note_id': note_id, 'version': version, 's3_key': s3_key})
-		)
-		logger.info(f"Successfully enqueued SQS message for note_id={note_id}, version={version}")
-	except ClientError as e:
-		logger.error(f"Failed to enqueue SQS message: {e.response['Error']['Message']}")
-		return {
-			'statusCode': 500,
-			'body': json.dumps({'error': f'Failed to enqueue SQS message: {e.response['Error']['Message']}'})
-		}
+	if (COMPRESSION_ALGO == "ZSTD" or COMPRESSION_ALGO == "TRAINED_ZSTD"):
+		# 3. Put message in SQS queue (include version)
+		try:
+			logger.info(f"Enqueuing SQS message: queue_url={SQS_QUEUE_URL}, note_id={note_id}, version={version}")
+			sqs.send_message(
+				QueueUrl=SQS_QUEUE_URL,
+				MessageBody=json.dumps({'note_id': note_id, 'version': version, 's3_key': s3_key})
+			)
+			logger.info(f"Successfully enqueued SQS message for note_id={note_id}, version={version}")
+		except ClientError as e:
+			logger.error(f"Failed to enqueue SQS message: {e.response['Error']['Message']}")
+			return {
+				'statusCode': 500,
+				'body': json.dumps({'error': f'Failed to enqueue SQS message: {e.response['Error']['Message']}'})
+			}
 
 	# 4. Return success response
 	logger.info(f"Note {note_id} v{version} {'updated' if method == 'PUT' else 'uploaded'} successfully")

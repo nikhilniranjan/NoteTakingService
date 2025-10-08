@@ -12,7 +12,7 @@ table = dynamodb.Table(DDB_TABLE)
 
 # Set up logging for Lambda/CloudWatch
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.ERROR)
 
 def lambda_handler(event, context=None):
     # Only allow GET requests

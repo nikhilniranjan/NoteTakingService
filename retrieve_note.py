@@ -21,7 +21,7 @@ s3 = boto3.client('s3')
 
 # Set up logging for Lambda/CloudWatch
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.ERROR)
 
 def get_dictionary_data():
     response = s3.get_object(Bucket=S3_BUCKET, Key='notes/zstd_dictionary')
@@ -53,7 +53,10 @@ def lambda_handler(event, context=None):
                 'statusCode': 404,
                 'body': json.dumps({'error': 'Note not found'})
             }
-        compressed_key = item.get('compressed_key')
+        if (COMPRESSION_ALGO == "ZSTD") or (COMPRESSION_ALGO == "TRAINED_ZSTD"):
+            compressed_key = item.get('compressed_key')
+        else:
+            compressed_key = item.get('s3_key') # For NONE compression, use original s3_key
         if not compressed_key:
             logger.warning(f"Compressed note not found for note_id={note_id}, version={version}")
             return {
