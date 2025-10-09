@@ -29,7 +29,7 @@ filepath = "/Users/nikhilniranjan/andromeda/training-files/"
 data_files_count = 10
 training_set_count = 10000
 min_note_size = 100
-max_note_size = 10000
+max_note_size = 100000
 sample_text = []
 samples = []
 
@@ -44,9 +44,10 @@ for i in range(len(SAMPLE_URLS)):
 results = []
 note_table = {}  # (note_id, version) -> content
 note_ids = []
-num_notes = 100 # 100
-num_versions = 10 #10
-num_notes_to_read = 100 #100
+num_notes = 100
+num_versions = 5
+# num_notes_to_read = 10 #100 not used
+sleep_time = 60
 
 # Download sample text
 #response = requests.get(SAMPLE_URL)
@@ -97,39 +98,40 @@ for version in range(2, num_versions + 1):
             logger.error(f"Error updating note {note_id} v{version}: {e}")
 
 
-time.sleep(60) # Wait for a while
+time.sleep(sleep_time) # Wait for a while
 
 # 3. Retrieve random notes and compare contents with retry logic
 max_retries = 3
 retry_delay = 1  # seconds
-for _ in range(num_notes_to_read):
-    note_id = random.choice(note_ids)
-    version = str(random.randint(1, num_versions))
-    params = {"note_id": note_id, "version": version}
-    for attempt in range(1, max_retries + 1):
-        try:
-            response = requests.get(RETRIEVE_NOTE_URL, params=params)
-            logger.info(f"Retrieve note {note_id} v{version} attempt {attempt}: status={response.status_code}")
-            if response.status_code == 200:
-                body = response.json()
-                retrieved_content = body.get("content", "")
-                original_content = note_table.get((note_id, version), None)
-                match = (retrieved_content == original_content)
-                results.append({"action": "retrieve_compare", "note_id": note_id, "version": version, "match": match, "attempt": attempt})
-                break
-            else:
-                logger.info(f"Note {note_id} v{version} not found on attempt {attempt}. Retrying in {retry_delay} seconds...")
-                if attempt < max_retries:
+for note_id in range(num_notes):
+    for version in range(1, num_versions + 1):
+        note_id = random.choice(note_ids)
+        version = str(random.randint(1, num_versions))
+        params = {"note_id": note_id, "version": version}
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = requests.get(RETRIEVE_NOTE_URL, params=params)
+                logger.info(f"Retrieve note {note_id} v{version} attempt {attempt}: status={response.status_code}")
+                if response.status_code == 200:
+                    body = response.json()
+                    retrieved_content = body.get("content", "")
+                    original_content = note_table.get((note_id, version), None)
+                    match = (retrieved_content == original_content)
+                    results.append({"action": "retrieve_compare", "note_id": note_id, "version": version, "match": match, "attempt": attempt})
+                    break
+                else:
+                    logger.info(f"Note {note_id} v{version} not found on attempt {attempt}. Retrying in {retry_delay} seconds...")
+                    if attempt < max_retries:
+                        time.sleep(retry_delay)
+                        continue
+                    results.append({"action": "retrieve_compare", "note_id": note_id, "version": version, "statusCode": response.status_code, "attempt": attempt})
+                    break
+            except Exception as e:
+                logger.error(f"Error retrieving note {note_id} v{version} (attempt {attempt}): {e}")
+                if attempt == max_retries:
+                    results.append({"action": "retrieve_compare", "note_id": note_id, "version": version, "error": str(e), "attempt": attempt})
+                else:
                     time.sleep(retry_delay)
-                    continue
-                results.append({"action": "retrieve_compare", "note_id": note_id, "version": version, "statusCode": response.status_code, "attempt": attempt})
-                break
-        except Exception as e:
-            logger.error(f"Error retrieving note {note_id} v{version} (attempt {attempt}): {e}")
-            if attempt == max_retries:
-                results.append({"action": "retrieve_compare", "note_id": note_id, "version": version, "error": str(e), "attempt": attempt})
-            else:
-                time.sleep(retry_delay)
 
 
 # 4. Get metrics from metrics endpoint and process results
@@ -166,10 +168,10 @@ try:
         for entry in list_metrics:
             note_id = entry.get("note_id", "")
             version = entry.get("version", "")
-            uncompressed_size = entry.get("uncompressed_size") if entry.get("uncompressed_size") is not None else ""
-            compression_ratio = entry.get("compression_ratio") if entry.get("compression_ratio") is not None else ""
-            decompression_latency = entry.get("decompression_latency") if entry.get("decompression_latency") is not None else ""
-            read_latency = entry.get("read_latency") if entry.get("read_latency") is not None else ""
+            uncompressed_size = round(entry.get("uncompressed_size"), 0) if entry.get("uncompressed_size") is not None else ""
+            compression_ratio = round(entry.get("compression_ratio"), 2) if entry.get("compression_ratio") is not None else ""
+            decompression_latency = round(entry.get("decompression_latency"), 3) if entry.get("decompression_latency") is not None else ""
+            read_latency = round(entry.get("read_latency"), 3) if entry.get("read_latency") is not None else ""
             f.write(f"{note_id},{version},{uncompressed_size},{compression_ratio},{decompression_latency},{read_latency}\n")
     logger.info(f"Wrote metrics details to metrics_notes.txt")
 
@@ -178,8 +180,8 @@ try:
     decompression_latencies = [entry.get("decompression_latency") for entry in list_metrics if isinstance(entry.get("decompression_latency"), (int, float))]
     read_latencies = [entry.get("read_latency") for entry in list_metrics if isinstance(entry.get("read_latency"), (int, float))]
     avg_compression_ratio = round(sum(compression_ratios) / len(compression_ratios), 2) if compression_ratios else None
-    avg_decompression_latency = round(sum(decompression_latencies) / len(decompression_latencies), 2) if decompression_latencies else None
-    avg_read_latency = round(sum(read_latencies) / len(read_latencies), 2) if read_latencies else None
+    avg_decompression_latency = round(sum(decompression_latencies) / len(decompression_latencies), 3) if decompression_latencies else None
+    avg_read_latency = round(sum(read_latencies) / len(read_latencies), 3) if read_latencies else None
 
     # Calculate overall storage savings
     uncompressed_sizes = [entry.get("uncompressed_size") for entry in list_metrics if isinstance(entry.get("uncompressed_size"), (int, float)) and isinstance(entry.get("compression_ratio"), (int, float))]

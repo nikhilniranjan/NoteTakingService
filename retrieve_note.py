@@ -21,7 +21,7 @@ s3 = boto3.client('s3')
 
 # Set up logging for Lambda/CloudWatch
 logger = logging.getLogger()
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.INFO)
 
 def get_dictionary_data():
     response = s3.get_object(Bucket=S3_BUCKET, Key='notes/zstd_dictionary')
@@ -30,7 +30,7 @@ def get_dictionary_data():
 
 def lambda_handler(event, context=None):
     # Parse query params for note_id and version
-    read_start = time.time() #start time for read
+    read_start = time.perf_counter() #start time for read
     params = event.get('queryStringParameters', {})
     note_id = params.get('note_id')
     version = params.get('version')
@@ -88,7 +88,7 @@ def lambda_handler(event, context=None):
     if (COMPRESSION_ALGO == "ZSTD") or (COMPRESSION_ALGO == "TRAINED_ZSTD"):
         try:
             logger.info(f"Decompressing note for note_id={note_id}, version={version}")
-            start_time = time.time()
+            start_time = time.perf_counter()
             if COMPRESSION_ALGO == "ZSTD":
                 note_data = zstd.decompress(compressed_data).decode('utf-8')
             elif COMPRESSION_ALGO == "TRAINED_ZSTD":
@@ -98,8 +98,8 @@ def lambda_handler(event, context=None):
                 note_data = decompressor.decompress(compressed_data).decode('utf-8')
             else:
                 raise Exception("Unsupported compression algorithm")
-            decompression_latency = round(Decimal(time.time()) - Decimal(start_time), 2) * 1000000  # Convert to microseconds, rounded to 2 decimal places
-            logger.info(f"Successfully decompressed note for note_id={note_id}, version={version}. Latency: {decompression_latency:.6f} seconds")
+            decompression_latency = Decimal(time.perf_counter() - start_time) * 1000  # milliseconds
+            logger.info(f"Successfully decompressed note for note_id={note_id}, version={version}. Latency: {decompression_latency:.6f} ms")
         except Exception as e:
             logger.error(f"Failed to decompress note: {e}")
             return {
@@ -111,8 +111,8 @@ def lambda_handler(event, context=None):
         decompression_latency = 0
         logger.info(f"No decompression needed for note_id={note_id}, version={version}")
    
-    read_end = time.time() #end time for read
-    read_latency = round(Decimal(read_end) - Decimal(read_start), 2) * 1000000  # Convert to microseconds, rounded to 2 decimal places
+    read_end = time.perf_counter() #end time for read
+    read_latency = Decimal(read_end - read_start) * 1000  # Convert to milliseconds
     
     # 4. Update DynamoDB with decompression latency and read latency
     try:

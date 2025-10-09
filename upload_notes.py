@@ -20,7 +20,7 @@ sqs = boto3.client('sqs')
 
 # Set up logging for Lambda/CloudWatch
 logger = logging.getLogger()
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.INFO)
 
 
 
